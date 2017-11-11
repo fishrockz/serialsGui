@@ -5,17 +5,25 @@ from PyQt4.QtGui import QApplication
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 
-
+from multiprocessing import Pipe
 import serial,time
 
 
 
 
 class myOutputText(QtGui.QWidget):
+	SerialEvent = QtCore.pyqtSignal(object )
 	def __init__(self,parent=None):
 		super(myOutputText, self).__init__(parent)
 		
 		MainLayout = QtGui.QVBoxLayout()
+		self.buttonSend = QtGui.QPushButton("Send")
+		self.textSend = QtGui.QLineEdit(parent)
+		self.layoutSend = QtGui.QHBoxLayout()
+		self.layoutSend.addWidget(self.buttonSend)
+		self.layoutSend.addWidget(self.textSend)
+		MainLayout.addLayout(self.layoutSend)
+
 		self.logOutput = QtGui.QTextEdit(parent)
 		self.logOutput.setReadOnly(True)
 		self.logOutput.setLineWrapMode(QtGui.QTextEdit.NoWrap)
@@ -132,26 +140,25 @@ class myWidget(QtGui.QMainWindow):
 		self.setCentralWidget(self.SerialConection)
 		self.SerialConection.SerialDataOut.connect(self.handle_Telem)
 		
-		tab1	= myOutputText()	
-#		tab2	= mysillyPics()
-#		tab3	= QtGui.QWidget()
-#		tab4	= QtGui.QWidget()
+		tab1	= myOutputText()
+		self.add_widgit(tab1)
 
 
 
-		ConsoleTabDock=QtGui.QDockWidget("Console",self)
-		ConsoleTabDock.setWidget(tab1)
-		self.widgetsTogetSerial.append(tab1)
 		
 		
-#		PicTabDock=QtGui.QDockWidget("Pics",self)
-#		PicTabDock.setWidget(tab2)
-#		self.widgetsTogetSerial.append(tab2)
-			
-		self.addDockWidget(QtCore.Qt.BottomDockWidgetArea,ConsoleTabDock)
-#		self.addDockWidget(QtCore.Qt.BottomDockWidgetArea,PicTabDock)
+		for widget in self.widgetsTogetSerial:
+		    defaultpos=QtCore.Qt.BottomDockWidgetArea
+		    self.addDockWidget(defaultpos,widget.CTB)
         
-	
+	def add_widgit(self,widget):
+	    ConsoleTabDock=QtGui.QDockWidget("Console",self)
+	    ConsoleTabDock.setWidget(widget)
+	    widget.CTB=ConsoleTabDock
+
+	    widget.SerialEvent.connect(self.handle_Telem)
+
+	    self.widgetsTogetSerial.append(widget)
 	def handle_Telem(self,info):
 		print "handle_Telem"
 
