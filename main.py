@@ -11,10 +11,10 @@ import serial,time
 
 
 
-class myOutputText(QtGui.QWidget):
-	SerialEvent = QtCore.pyqtSignal(object )
+class ConsoleSimples(QtGui.QWidget):
+	SerialDataOut = QtCore.pyqtSignal(object )
 	def __init__(self,parent=None):
-		super(myOutputText, self).__init__(parent)
+		super(ConsoleSimples, self).__init__(parent)
 		
 		MainLayout = QtGui.QVBoxLayout()
 		self.buttonSend = QtGui.QPushButton("Send")
@@ -51,6 +51,8 @@ class myOutputText(QtGui.QWidget):
 			sb = self.logOutput.verticalScrollBar()
 			sb.setValue(sb.maximum())
 	def SerialRecive(self,info):
+		self.addStuff(info)
+		return
 		info=str(info[1])
 		#self.pixItemB.setPixmap(self.pixmapB)
 		striped=''
@@ -69,62 +71,90 @@ class myOutputText(QtGui.QWidget):
 					#self.valves[int(valveinfo[1])]['Gui'].setPixmap(self.ValvePixmaps[int(item[1])])
 					self.addStuff(stateNames[int(item[1])])
 		
+class CommsThread(QtCore.QThread):
+	SerialThreadEvent = QtCore.pyqtSignal(object)
+	def __init__(self, portname,transmitPipe=None):
+		QtCore.QThread.__init__(self)
+		self.serialSream=''
+		self._FileObject=serial.Serial(portname, timeout=0)
+		self._transmitPipe=transmitPipe
+	def run(self):	
+		while 1:
+			newline=''
+			if self._FileObject !=None:
+				#try:
+					print "select"
+					readobjects=[self._FileObject,]
+					if self._transmitPipe: readobjects+=self._transmitPipe
+					print "from",readobjects
+					myselect=select.select(readobjects,[],[])
+					print 'select:',myselect
+					new = self._FileObject.read()
+					while new != '':
+						newline+=new
+						
+						new = self._FileObject.read()
+					print 'new: ','"'+str(newline.encode('string_escape'))+'"',type(newline)
+				
+				#except:
+				#	pass
+			else:
+		 		pass
+				#end thread?
+			print "bop"
+			self.serialSream+=newline
+			while '\n' in self.serialSream:
+				bits=self.serialSream.split('\n')
+				fulline=bits[0]
+				fulline=fulline.replace('\r','')
+				print 'new line: ',str(fulline.encode('string_escape'))+'"',type(fulline)
+				self.serialSream='\n'.join(bits[1:])
+				self.SerialThreadEvent.emit(fulline)
+
+				
 
 
-
-
+class SerialConnection(QtGui.QWidget):
+	
+	def __init__(self,parent=None,name='',port='/dev/ttyACM0',trigger=None):
+		super(SerialConnection, self).__init__(parent)
+		layout = QtGui.QHBoxLayout()
+		self._port=port
+		self._SerialDataOut=trigger
+		self._name=name
+		self._active=0
+		self._transmitePipe=None
+		self.b1 = QtGui.QPushButton("Teensy via "+name)
+		self.b1.clicked.connect(self.setoffPort)
+		layout.addWidget(self.b1)
+		self.setLayout(layout)
+	def setoffPort(self):
+		print "hi there "+self._name
+		if self._active: return
+	#	try:
+		if 1:
+			self._transmitePipe=Pipe()
+			self.MyCommThread = CommsThread(self._port,self._transmitePipe)
+            		self.MyCommThread.SerialThreadEvent.connect(self.SerialCallback)
+            		self.MyCommThread.start()
+            		self._active=1
+	#	except:
+	#		pass
+	def SerialCallback(self,packet):
+		if self._SerialDataOut:
+			self._SerialDataOut.emit(packet)	
 class ConnectStuff(QtGui.QWidget):
 	SerialDataOut = QtCore.pyqtSignal(object )
 	def __init__(self,parent=None):
 		super(ConnectStuff, self).__init__(parent)
 		layout = QtGui.QVBoxLayout()
-		self.b1 = QtGui.QPushButton("Teensy via USB")
-		self.b1.clicked.connect(self.setoffACM)
-		self.b2 = QtGui.QPushButton("Radio")
-		self.b2.clicked.connect(self.setoffUSB)
-		#self.b1.clicked.connect(self.btnstate)
+		self.b1=SerialConnection(name='USB',port='/dev/ttyACM0',trigger=self.SerialDataOut)
+		self.b2=SerialConnection(name='Radio',port='/dev/ttyUSB0',trigger=self.SerialDataOut)
 		layout.addWidget(self.b1)
 		layout.addWidget(self.b2)
-		#self.timer = QTimer()
 		self.setLayout(layout)
-		self.console=None
-#		try:
-##			self.SerialConnn
-		self.serialSream=''
-		self.serial = None
-		#self.timer.timeout.connect(self.tick)
-		#self.timer.start(100)
 		
-		
-	def setoffACM(self):
-		print "hi there AMC"
-		try:
-			self.serial = serial.Serial('/dev/ttyACM0')
-			self.serial.timeout = 0.001
-			
-			self.MyCommThread = CommsThread(self.serial)
-            		self.MyCommThread.SerialThreadEvent.connect(self.tick)
-            		self.MyCommThread.start()
-		except:
-			pass
-	def setoffUSB(self):
-		print "hi there USB"
-		try:
-			self.serial = serial.Serial('/dev/ttyUSB0',baudrate=57600)
-			self.serial.timeout = 0.001
-			
-			self.MyCommThread = CommsThread(self.serial)
-            		self.MyCommThread.SerialThreadEvent.connect(self.tick)
-            		self.MyCommThread.start()
-		except:
-			pass		
-		
-	def tick(self,myinfo):
-		print 'tick',myinfo
-		#if myinfo[0]=='Packet':
-		self.SerialDataOut.emit(myinfo)
 
-		#print 'newline :',newline
 
 
 
@@ -138,15 +168,12 @@ class myWidget(QtGui.QMainWindow):
 		self.SerialConection=ConnectStuff()
 		
 		self.setCentralWidget(self.SerialConection)
-		self.SerialConection.SerialDataOut.connect(self.handle_Telem)
+		self.SerialConection.SerialDataOut.connect(self.handle_Packet)
 		
-		tab1	= myOutputText()
+		tab1	= ConsoleSimples()
 		self.add_widgit(tab1)
 
 
-
-		
-		
 		for widget in self.widgetsTogetSerial:
 		    defaultpos=QtCore.Qt.BottomDockWidgetArea
 		    self.addDockWidget(defaultpos,widget.CTB)
@@ -156,11 +183,14 @@ class myWidget(QtGui.QMainWindow):
 	    ConsoleTabDock.setWidget(widget)
 	    widget.CTB=ConsoleTabDock
 
-	    widget.SerialEvent.connect(self.handle_Telem)
+	    widget.SerialDataOut.connect(self.handle_Packet)
 
 	    self.widgetsTogetSerial.append(widget)
-	def handle_Telem(self,info):
-		print "handle_Telem"
+	def handle_Packet(self,info):
+		print "handle_Packet"
+		for widget in self.widgetsTogetSerial:
+			if hasattr(widget, 'SerialRecive'):
+				widget.SerialRecive(info)
 
 
 
