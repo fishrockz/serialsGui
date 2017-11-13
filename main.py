@@ -9,16 +9,19 @@ from multiprocessing import Pipe
 import serial,time
 
 
-
-
+class serialPacket(object):
+	payload=''
+	origin=None
+	def __init__(self, *args, **kwargs):
+		super(serialPacket, self).__init__()
 class ConsoleSimples(QtGui.QWidget):
 	SerialDataOut = QtCore.pyqtSignal(object )
 	def __init__(self,parent=None):
 		super(ConsoleSimples, self).__init__(parent)
-		
 		MainLayout = QtGui.QVBoxLayout()
 		self.buttonSend = QtGui.QPushButton("Send")
-		self.textSend = QtGui.QLineEdit(parent)
+		self.buttonSend.clicked.connect(self.sendData)
+		self.textSend = QtGui.QLineEdit()
 		self.layoutSend = QtGui.QHBoxLayout()
 		self.layoutSend.addWidget(self.buttonSend)
 		self.layoutSend.addWidget(self.textSend)
@@ -36,48 +39,34 @@ class ConsoleSimples(QtGui.QWidget):
 		
 		self.setLayout(MainLayout)
 		self.lastState=''
+	def sendData(self):
+		newpacket=serialPacket()
+		newpacket.origin=self
+		newpacket.text=self.textSend.text()
+		self.SerialDataOut.emit(newpacket)
 	def addStuff(self,text):
 		text=QtCore.QString(str(text)+'\n')
 		
 		if self.lastState!=text:
 			self.logOutput.moveCursor(QtGui.QTextCursor.End)
 			self.logOutput.setCurrentFont(self.font)
-			#self.logOutput.setTextColor(color)
-
 
 		
 			self.logOutput.insertPlainText(text)
 			self.lastState=text
 			sb = self.logOutput.verticalScrollBar()
 			sb.setValue(sb.maximum())
-	def SerialRecive(self,info):
-		self.addStuff(info)
-		return
-		info=str(info[1])
-		#self.pixItemB.setPixmap(self.pixmapB)
-		striped=''
-		state=None
-		#try:
-		if '<TP>' in info:
-			
-			striped='>'+info.split('<TP>')[-1].split('</TP>')[0]+'<'
-			items=striped.split('><')[1:-1]
-			items=map(lambda x: x.split('='), items)
-			print 'items for Text',items
-			for item in items:
-				#valveinfo=item[0].split('-')
-				if item[0]=='St':
-					#print int(valveinfo[1]),item[1]
-					#self.valves[int(valveinfo[1])]['Gui'].setPixmap(self.ValvePixmaps[int(item[1])])
-					self.addStuff(stateNames[int(item[1])])
+	def SerialRecive(self,packet):
+		self.addStuff(packet.payload)
+		
 		
 class CommsThread(QtCore.QThread):
 	SerialThreadEvent = QtCore.pyqtSignal(object)
-	def __init__(self, portname,transmitPipe=None):
+	def __init__(self, portname=None,recivePipe=None):
 		QtCore.QThread.__init__(self)
 		self.serialSream=''
 		self._FileObject=serial.Serial(portname, timeout=0)
-		self._transmitPipe=transmitPipe
+		self._recivePipe=recivePipe
 	def run(self):	
 		while 1:
 			newline=''
@@ -85,16 +74,22 @@ class CommsThread(QtCore.QThread):
 				#try:
 					print "select"
 					readobjects=[self._FileObject,]
-					if self._transmitPipe: readobjects+=self._transmitPipe
+					if self._recivePipe: readobjects+=[self._recivePipe,]
 					print "from",readobjects
 					myselect=select.select(readobjects,[],[])
 					print 'select:',myselect
-					new = self._FileObject.read()
-					while new != '':
-						newline+=new
-						
+					if self._FileObject in myselect[0]:
 						new = self._FileObject.read()
-					print 'new: ','"'+str(newline.encode('string_escape'))+'"',type(newline)
+						while new != '':
+							newline+=new
+						
+							new = self._FileObject.read()
+						print 'new: ','"'+str(newline.encode('string_escape'))+'"',type(newline)
+					if self._recivePipe in myselect[0]:
+						print self._recivePipe
+						tosend = self._recivePipe.recv()
+						print "tosend",tosend
+						self._FileObject.write(tosend)
 				
 				#except:
 				#	pass
@@ -109,7 +104,10 @@ class CommsThread(QtCore.QThread):
 				fulline=fulline.replace('\r','')
 				print 'new line: ',str(fulline.encode('string_escape'))+'"',type(fulline)
 				self.serialSream='\n'.join(bits[1:])
-				self.SerialThreadEvent.emit(fulline)
+				newPacket=serialPacket()
+				newPacket.payload=fulline
+				
+				self.SerialThreadEvent.emit(newPacket)
 
 				
 
@@ -133,28 +131,32 @@ class SerialConnection(QtGui.QWidget):
 		if self._active: return
 	#	try:
 		if 1:
-			self._transmitePipe=Pipe()
-			self.MyCommThread = CommsThread(self._port,self._transmitePipe)
+			self._transmitePipe,threadPipe=Pipe()
+			self.MyCommThread = CommsThread(portname=self._port,recivePipe=threadPipe)
             		self.MyCommThread.SerialThreadEvent.connect(self.SerialCallback)
             		self.MyCommThread.start()
             		self._active=1
 	#	except:
 	#		pass
-	def SerialCallback(self,packet):
+	def SerialCallback(self,newPacket):
 		if self._SerialDataOut:
-			self._SerialDataOut.emit(packet)	
+			newPacket.origin=self.parent()
+			self._SerialDataOut.emit(newPacket)
+	def SerialRecive(self,packet):
+		print 'packet for pipe',packet
+		self._transmitePipe.send(packet.text)
 class ConnectStuff(QtGui.QWidget):
 	SerialDataOut = QtCore.pyqtSignal(object )
 	def __init__(self,parent=None):
 		super(ConnectStuff, self).__init__(parent)
 		layout = QtGui.QVBoxLayout()
-		self.b1=SerialConnection(name='USB',port='/dev/ttyACM0',trigger=self.SerialDataOut)
-		self.b2=SerialConnection(name='Radio',port='/dev/ttyUSB0',trigger=self.SerialDataOut)
+		self.b1=SerialConnection(parent=self,name='USB',port='/dev/ttyACM0',trigger=self.SerialDataOut)
+		self.b2=SerialConnection(parent=self,name='Radio',port='/dev/ttyUSB0',trigger=self.SerialDataOut)
 		layout.addWidget(self.b1)
 		layout.addWidget(self.b2)
 		self.setLayout(layout)
-		
-
+	def SerialRecive(self,packet):
+		self.b1.SerialRecive(packet)
 
 
 
@@ -164,8 +166,8 @@ class myWidget(QtGui.QMainWindow):
 		super(myWidget, self).__init__(parent)
 		self.resize(250, 150)
 		self.setWindowTitle('Simple')
-		self.widgetsTogetSerial=[]
 		self.SerialConection=ConnectStuff()
+		self.widgetsTogetSerial=[self.SerialConection]
 		
 		self.setCentralWidget(self.SerialConection)
 		self.SerialConection.SerialDataOut.connect(self.handle_Packet)
@@ -175,8 +177,9 @@ class myWidget(QtGui.QMainWindow):
 
 
 		for widget in self.widgetsTogetSerial:
-		    defaultpos=QtCore.Qt.BottomDockWidgetArea
-		    self.addDockWidget(defaultpos,widget.CTB)
+			if hasattr(widget,'CTB'):
+				defaultpos=QtCore.Qt.BottomDockWidgetArea
+				self.addDockWidget(defaultpos,widget.CTB)
         
 	def add_widgit(self,widget):
 	    ConsoleTabDock=QtGui.QDockWidget("Console",self)
@@ -186,11 +189,16 @@ class myWidget(QtGui.QMainWindow):
 	    widget.SerialDataOut.connect(self.handle_Packet)
 
 	    self.widgetsTogetSerial.append(widget)
-	def handle_Packet(self,info):
+	def handle_Packet(self,packet):
 		print "handle_Packet"
 		for widget in self.widgetsTogetSerial:
 			if hasattr(widget, 'SerialRecive'):
-				widget.SerialRecive(info)
+				if hasattr(packet, 'origin'):
+					print "packet.origin,widget",packet.origin,widget
+					if packet.origin!=widget:
+						widget.SerialRecive(packet)
+				else:
+					widget.SerialRecive(packet)
 
 
 
