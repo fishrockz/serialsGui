@@ -29,9 +29,11 @@ void loop() {
   	String word="";
   	while (Serial.available() > 0) {
                 // read the incoming byte:
-                word += Serial.read();
+				char c = Serial.read();
+                word += c;
+				//Serial.write(c);
         }
-        Serial.print(word);
+        Serial.println(word);
   }   
   }
   digitalWrite(led, LOW);    // turn the LED off by making the voltage LOW

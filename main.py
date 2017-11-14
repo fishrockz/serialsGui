@@ -8,6 +8,11 @@ from PyQt4 import QtCore
 from multiprocessing import Pipe
 import serial,time
 
+#to support py3k and py2k
+try:
+    from PyQt4.QtCore import QString
+except ImportError:
+    QString = str
 
 class serialPacket(object):
 	payload=''
@@ -45,7 +50,7 @@ class ConsoleSimples(QtGui.QWidget):
 		newpacket.text=self.textSend.text()
 		self.SerialDataOut.emit(newpacket)
 	def addStuff(self,text):
-		text=QtCore.QString(str(text)+'\n')
+		text=QString(str(text)+'\n')
 		
 		if self.lastState!=text:
 			self.logOutput.moveCursor(QtGui.QTextCursor.End)
@@ -72,37 +77,40 @@ class CommsThread(QtCore.QThread):
 			newline=''
 			if self._FileObject !=None:
 				#try:
-					print "select"
+					print ("select")
 					readobjects=[self._FileObject,]
 					if self._recivePipe: readobjects+=[self._recivePipe,]
-					print "from",readobjects
+					print ("from",readobjects)
 					myselect=select.select(readobjects,[],[])
-					print 'select:',myselect
+					print ('select:',myselect)
 					if self._FileObject in myselect[0]:
 						new = self._FileObject.read()
-						while new != '':
-							newline+=new
+						print ("new:",new)
+						while len(new) != 0:
+							newline+=new.decode('ascii')
 						
 							new = self._FileObject.read()
-						print 'new: ','"'+str(newline.encode('string_escape'))+'"',type(newline)
+							print ("new:",len(new),new)
+						print ('new:','"'+str(newline.encode('unicode_escape'))+'"',type(newline))
 					if self._recivePipe in myselect[0]:
-						print self._recivePipe
+						print (self._recivePipe)
 						tosend = self._recivePipe.recv()
-						print "tosend",tosend
-						self._FileObject.write(tosend)
+						print ("tosend",tosend)
+						self._FileObject.write(tosend.encode('ascii'))
+					print ("read file objects")
 				
 				#except:
 				#	pass
 			else:
 		 		pass
 				#end thread?
-			print "bop"
+			print ("bop")
 			self.serialSream+=newline
 			while '\n' in self.serialSream:
 				bits=self.serialSream.split('\n')
 				fulline=bits[0]
 				fulline=fulline.replace('\r','')
-				print 'new line: ',str(fulline.encode('string_escape'))+'"',type(fulline)
+				print ('new line:',str(fulline.encode('unicode_escape'))+'"',type(fulline))
 				self.serialSream='\n'.join(bits[1:])
 				newPacket=serialPacket()
 				newPacket.payload=fulline
@@ -127,15 +135,15 @@ class SerialConnection(QtGui.QWidget):
 		layout.addWidget(self.b1)
 		self.setLayout(layout)
 	def setoffPort(self):
-		print "hi there "+self._name
+		print ("hi there "+self._name)
 		if self._active: return
 	#	try:
 		if 1:
 			self._transmitePipe,threadPipe=Pipe()
 			self.MyCommThread = CommsThread(portname=self._port,recivePipe=threadPipe)
-            		self.MyCommThread.SerialThreadEvent.connect(self.SerialCallback)
-            		self.MyCommThread.start()
-            		self._active=1
+			self.MyCommThread.SerialThreadEvent.connect(self.SerialCallback)
+			self.MyCommThread.start()
+			self._active=1
 	#	except:
 	#		pass
 	def SerialCallback(self,newPacket):
@@ -143,7 +151,7 @@ class SerialConnection(QtGui.QWidget):
 			newPacket.origin=self.parent()
 			self._SerialDataOut.emit(newPacket)
 	def SerialRecive(self,packet):
-		print 'packet for pipe',packet
+		print ('packet for pipe',packet)
 		self._transmitePipe.send(packet.text)
 class ConnectStuff(QtGui.QWidget):
 	SerialDataOut = QtCore.pyqtSignal(object )
@@ -190,11 +198,11 @@ class myWidget(QtGui.QMainWindow):
 
 	    self.widgetsTogetSerial.append(widget)
 	def handle_Packet(self,packet):
-		print "handle_Packet"
+		print ("handle_Packet")
 		for widget in self.widgetsTogetSerial:
 			if hasattr(widget, 'SerialRecive'):
 				if hasattr(packet, 'origin'):
-					print "packet.origin,widget",packet.origin,widget
+					print ("packet.origin,widget",packet.origin,widget)
 					if packet.origin!=widget:
 						widget.SerialRecive(packet)
 				else:
